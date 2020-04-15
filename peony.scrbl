@@ -88,7 +88,10 @@ and @racket[#:port]).
  corresponding to the provided @racket[contents]. The @racket[contents] expression
  has access to three values: @racket[GET], @racket[POST] and @racket[REQ],
  containing respectively a hash mapping GET arguments to their values, a hash mapping
- POST arguments to their values and the literal @racket[request] in full.}
+ POST arguments to their values and the literal @racket[request] in full. In GET and
+ POST, if there are multiple parameters with the same name then the earlier ones are
+ shadowed by the later ones, the full query can be extracted by manually processing
+ REQ if this is a problem.}
 
 @defproc[(webapp [index webpage?] [pages webpage?] ...)
          (-> request? response?)]{
