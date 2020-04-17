@@ -20,7 +20,7 @@ See also @other-doc['(lib "db/scribblings/db.scrbl")].
 
 @section{Full Example}
 
-As an example of use, say we want to create a webapp to demonstrate GET and POST arguments.
+As an example of use, say we want to create a webapp to demonstrate the use of GET and POST parameters.
 
 First, we can set up a main page like so:
 @racketblock[
@@ -29,7 +29,7 @@ First, we can set up a main page like so:
                                  (a [[href "demos/get"]] "test get")
                                  (br)
                                  (a [[href "demos/post"]] "test post")))))]
-Which defines @racket[index] as a webpage with the path @racket[index.html] and a static body. Since we'll be using it as
+Which defines @racket[index] as a @racket[webpage] with the path @racket[index.html] and a static body. Since we'll be using it as
 the @racket[index] of our webapp it will be accessible at www.address.com/. we call it @racket[index.html]
 just for the sake of tradition, since it has to have a non-empty name as well.
 
@@ -86,10 +86,10 @@ and @racket[#:port]).
  function taking an http @racket[request] and returning a @racket[response].
  The response is a standard 200 response whose body consists of the html
  corresponding to the provided @racket[contents]. The @racket[contents] expression
- has access to three values: @racket[GET], @racket[POST] and @racket[REQ],
+ has access to four values: @racket[GET], @racket[POST], @racket[COOKIE] and @racket[REQ],
  containing respectively a hash mapping GET arguments to their values, a hash mapping
- POST arguments to their values and the literal @racket[request] in full. In GET and
- POST, if there are multiple parameters with the same name then the earlier ones are
+ POST arguments to their values, a hash mapping cookies to their values, and the literal @racket[request] in full.
+ In GET, POST and COOKIE, if there are multiple parameters with the same name then the earlier ones are
  shadowed by the later ones, the full query can be extracted by manually processing
  REQ if this is a problem.}
 
