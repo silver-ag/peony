@@ -25,13 +25,14 @@
                  (cons index pages))))
      req)))
 
-(define-syntax (page stx)
-  ;; returns a webpage consisting of a name and an expression to be evaluated to return an htmlexpr.
+(define-syntax (page-proto stx)
+  ;; returns a webpage consisting of a name and an expression to be evaluated to return a page of some kind.
   ;; the bindings GET and POST are available to this expression, containing a hash of
   ;; those arguments, also REQ, containing the unprocessed request
-  ;; syntax: (page <path> <expr>)
+  ;; syntax: (page-proto <path> <expr> <processor>)
   (define path (second (syntax->datum stx)))
   (define expr (third (syntax->datum stx)))
+  (define processor (fourth (syntax->datum stx)))
   (datum->syntax
    stx
    `(webpage
@@ -60,11 +61,41 @@
                                           h))
                                     (hash)
                                     (string-split (bytes->string/utf-8 (header-value (first heads))) "; ")))))
-       (response/xexpr ((λ (GET POST COOKIE REQ) ,expr) get-args post-args cookie req))))))
+       (,processor ((λ (GET POST COOKIE REQ) ,expr) get-args post-args cookie req))))))
+
+(define-syntax (page stx)
+  ;; page which expects an xexpr
+  (datum->syntax
+   stx
+   `(page-proto ,(second (syntax->datum stx)) ,(third (syntax->datum stx)) response/xexpr)))
+
+;(define (stylesheet stx)
+;  ;; page which expects a cssexpr
+;  (datum->syntax
+;   stx
+;   `(page-proto ,(second (syntax->datum stx)) ,(third (syntax->datum stx)) response/cssexpr)))
+
+(define-syntax (textpage stx)
+  ;; page which expects a string
+  (datum->syntax
+   stx
+   `(page-proto ,(second (syntax->datum stx)) (string->bytes/utf-8 ,(third (syntax->datum stx)))
+                (curry response/bytes #"text/plain; charset=utf-8"))))
+
+(define (response/bytes mime-type bs)
+  ;; respond plain bytes with the given mime type
+  (response/full 200 #"OK" (current-seconds) mime-type '() (list bs)))
+
+;(define (response/cssexpr cssx)
+;  (if (cssexpr? cssx)
+;      (reponse/full 200 #"OK" (current-seconds) #"text/plain; charset=utf-8" '()
+;                    (list (string->bytes/utf-8 (cssexpr->string cssx))))
+;      (error (format "response/cssexpr: expected cssexpr, got ~a" cssx))))
 
 (require web-server/servlet-dispatch)
 (require web-server/servlet-env)
-(provide page webapp (struct-out webpage)
+(provide page textpage webapp (struct-out webpage)
+         page-proto response/bytes
          (all-from-out web-server/servlet)
          (all-from-out web-server/dispatch)
          (all-from-out web-server/servlet-dispatch)

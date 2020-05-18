@@ -85,13 +85,51 @@ and @racket[#:port]).
  a @other-doc['(lib "web-server/scribblings/web-server.scrbl")] servlet - a
  function taking an http @racket[request] and returning a @racket[response].
  The response is a standard 200 response whose body consists of the html
- corresponding to the provided @racket[contents]. The @racket[contents] expression
+ corresponding to the @racket[xexpr?] provided by @racket[contents]. The @racket[contents] expression
  has access to four values: @racket[GET], @racket[POST], @racket[COOKIE] and @racket[REQ],
  containing respectively a hash mapping GET arguments to their values, a hash mapping
  POST arguments to their values, a hash mapping cookies to their values, and the literal @racket[request] in full.
  In GET, POST and COOKIE, if there are multiple parameters with the same name then the earlier ones are
  shadowed by the later ones, the full query can be extracted by manually processing
- REQ if this is a problem.}
+ REQ if this is a problem.
+
+ @racket[(page name contents)] is a shorthand for @racket[(page-proto name contents response/xexpr)].}
+
+@defform[(textpage name contents)
+         #:contracts ([name symbol?]
+                      [contents string?])]{
+ Returns a @racket[webpage] whose path is @racket[name] and whose body is the string provided in the @racket[contents] expression.
+ As with @racket[page], the expression for @racket[contents] has access to @racket[GET], @racket[POST], @racket[COOKIE] and @racket[REQ].
+
+ @racket[(textpage name contents)] is a shorthand for
+ @racket[(proto-page name (string->bytes/utf-8 contents) (curry response/data #"text/plain; encoding=utf-8"))].}
+
+@defform[(page-proto name contents response-operation)
+         #:contracts ([name symbol?]
+                      [contents string?]
+                      [response-operation (-> any? response?)])]{
+ This is a generic form to construct pages. It works like @racket[page] and @racket[textpage], but it takes an additional argument @racket[response-operation]
+ that transforms the result of the @racket[contents] expression into a @racket[response] to pass back to the client. For instance, if you wanted a way to specify
+ the return code of your pages, you could write something like:
+ @racketblock[
+  (define-syntax (page/return-code stx)
+    (define dtm (syntax->datum stx))
+    (datum->syntax stx
+                   (page-proto ,(second dtm)
+                               ,(fourth dtm)
+                               (curry response/xexpr #:code ,(third dtm)))))]
+ And invoke it:
+ @racketblock[
+ (page/return-code secret.html
+                   (if authorised? 200 403)
+                   (if authorised? page-contents '(html (body (h1 "Access Denied")))))]
+ Note that it must be a syntax form and not a function, because page-proto must receive its arguments unevaluated.}
+
+@defproc[(response/data [mime-type bytes?] [bs bytes?])
+         response]{
+ Returns an http 200 response containing the given bytes @racket[bs] labelled with the given @racket[mime-type]. Intended for use with @racket[page-proto] to
+ construct page types that serve data of kinds not yet supported.}
+
 
 @defproc[(webapp [index webpage?] [pages webpage?] ...)
          (-> request? response?)]{
