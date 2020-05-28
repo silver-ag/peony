@@ -2,4 +2,4 @@
 
 (define scribblings '(("peony.scrbl" ())))
 (define deps '("base" "web-server"))
-(define build-deps '("db-doc" "db-lib" "racket-doc"))
+(define build-deps '("db-doc" "db-lib" "racket-doc" "scribble-lib"))
