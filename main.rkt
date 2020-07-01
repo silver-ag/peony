@@ -1,6 +1,6 @@
 #lang racket
 
-(require (for-syntax racket/list))
+(require (for-syntax racket/list) xml)
 (require web-server/servlet web-server/dispatch)
 
 (struct webpage
@@ -25,14 +25,15 @@
                  (cons index pages))))
      req)))
 
-(define-syntax (page-proto stx)
+(define-syntax (page/proto stx)
   ;; returns a webpage consisting of a name and an expression to be evaluated to return a page of some kind.
-  ;; the bindings GET and POST are available to this expression, containing a hash of
+  ;; the bindings GET, POST and COOKIE are available to this expression, containing a hash of
   ;; those arguments, also REQ, containing the unprocessed request
-  ;; syntax: (page-proto <path> <expr> <processor>)
+  ;; syntax: (page-proto <path> <header-expr> <body-expr>)
+  ;; header-expr should return a hash of strings to strings, body-expr should return a list of bytestrings
   (define path (second (syntax->datum stx)))
-  (define expr (third (syntax->datum stx)))
-  (define processor (fourth (syntax->datum stx)))
+  (define header-expr (third (syntax->datum stx)))
+  (define body-expr (fourth (syntax->datum stx)))
   (datum->syntax
    stx
    `(webpage
@@ -61,14 +62,29 @@
                                           h))
                                     (hash)
                                     (string-split (bytes->string/utf-8 (header-value (first heads))) "; ")))))
-       (,processor ((λ (GET POST COOKIE REQ) ,expr) get-args post-args cookie req))))))
+       (response/full 200 #"Okay" (current-seconds) #f
+                      (hash-map ((λ (GET POST COOKIE REQ) ,header-expr) get-args post-args cookie req)
+                                          (λ (k v) (header (string->bytes/utf-8 k) (string->bytes/utf-8 v))))
+                      ((λ (GET POST COOKIE REQ) ,body-expr) get-args post-args cookie req))))))
 
 (define-syntax (page stx)
-  ;; page which expects an xexpr
+  ;; page which expects an xexpr, no header expression
   (datum->syntax
    stx
-   `(page-proto ,(second (syntax->datum stx)) ,(third (syntax->datum stx)) response/xexpr)))
+   `(page/proto ,(second (syntax->datum stx)) (hash "Content-Type" "text/html; charset=utf-8")
+                (list (string->bytes/utf-8 (xexpr->string ,(third (syntax->datum stx))))))))
 
+(define-syntax (page/headers stx)
+  ;; page which expects an xexpr
+  (define dtm (syntax->datum stx))
+  (datum->syntax
+   stx
+   `(page/proto ,(second (syntax->datum stx)) ,(let [[headers (third dtm)]]
+                                                 (if (hash-has-key? headers "Content-Type")
+                                                     headers
+                                                     (hash-set headers "Content-Type" "text/html; charset=utf-8")))
+                (list (string->bytes (xexpr->string ,(fourth (syntax->datum stx))))))))
+ 
 ;(define (stylesheet stx)
 ;  ;; page which expects a cssexpr
 ;  (datum->syntax
@@ -76,17 +92,54 @@
 ;   `(page-proto ,(second (syntax->datum stx)) ,(third (syntax->datum stx)) response/cssexpr)))
 
 (define-syntax (textpage stx)
-  ;; page which expects a string
+  ;; page which expects a string, no header expression
   (datum->syntax
    stx
-   `(page-proto ,(second (syntax->datum stx)) (string->bytes/utf-8 ,(third (syntax->datum stx)))
-                (curry response/bytes #"text/plain; charset=utf-8"))))
+   `(page/proto ,(second (syntax->datum stx)) (hash "Content-Type" "text/plain; charset=utf-8")
+                (string->bytes/utf-8 ,(third (syntax->datum stx))))))
+
+(define-syntax (textpage/headers stx)
+  ;; page which expects a string
+  (define dtm (syntax->datum stx))
+  (datum->syntax
+   stx
+   `(page/proto ,(second (syntax->datum stx)) ,(let [[headers (third dtm)]]
+                                                 (if (hash-has-key? headers "Content-Type")
+                                                     headers
+                                                     (hash-set headers "Content-Type" "text/plain; charset=utf-8")))
+                (string->bytes/utf-8 ,(fourth (syntax->datum stx))))))
+
+(define-syntax (datapage stx)
+  ;; page which expects a bytestring
+  ;; (datapage <name> <mime-type[bytes]> <body-expr>)
+  (datum->syntax
+   stx
+   `(page/proto ,(second (syntax->datum stx)) (hash "Content-Type" ,(third syntax->datum stx))
+                ,(fourth (syntax->datum stx)))))
+
+(define-syntax (datapage/headers stx)
+  ;; page which expects a bytestring
+  ;; (datapage/headers <name> <mime-type> <header-expr> <body-expr>)
+  (define dtm (syntax->datum stx))
+  (datum->syntax
+   stx
+   `(page/proto ,(second (syntax->datum stx)) ,(let [[headers (fourth dtm)]]
+                                                 (if (hash-has-key? headers "Content-Type")
+                                                     headers
+                                                     (hash-set headers "Content-Type" (third (syntax->datum stx)))))
+                (string->bytes/utf-8 ,(fifth (syntax->datum stx))))))
+
+(define-syntax (page/full stx)
+  (define dtm (syntax->datum stx))
+  (datum->syntax
+   stx
+   `(page/proto ,(second dtm) ,(third dtm) ,(fourth dtm) #:code ,(fifth dtm) #:mime-type (sixth dtm) #:headers (seventh dtm))))
 
 (define (response/bytes mime-type bs)
   ;; respond plain bytes with the given mime type
-  (response/full 200 #"OK" (current-seconds) mime-type '() (list bs)))
+  (response/full 200 #"OK" (current-seconds) mime-type '() (list bs))) 
 
-;(define (response/cssexpr cssx)
+;(define (response/cssexpr cssx) 
 ;  (if (cssexpr? cssx)
 ;      (reponse/full 200 #"OK" (current-seconds) #"text/plain; charset=utf-8" '()
 ;                    (list (string->bytes/utf-8 (cssexpr->string cssx))))
@@ -94,9 +147,10 @@
 
 (require web-server/servlet-dispatch)
 (require web-server/servlet-env)
-(provide page textpage webapp (struct-out webpage)
-         page-proto response/bytes
+(provide page textpage datapage page/headers textpage/headers datapage/headers webapp (struct-out webpage)
+         page/proto response/bytes
          (all-from-out web-server/servlet)
          (all-from-out web-server/dispatch)
          (all-from-out web-server/servlet-dispatch)
-         (all-from-out web-server/servlet-env))
+         (all-from-out web-server/servlet-env)
+         (all-from-out xml))

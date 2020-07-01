@@ -16,6 +16,8 @@ used php or similar in the past. With Peony, each webpage lives at a fixed path 
 corresponds to a chunk of code that's executed to produce html when the page is accessed.
 As long as that's all that's needed, the details of dispatching and such can be avoided.
 
+Peony is under active development and the api should not be considered stable.
+
 See also @other-doc['(lib "db/scribblings/db.scrbl")].
 
 @section{Full Example}
@@ -78,6 +80,21 @@ and @racket[#:port]).
 
 @section{Reference}
 
+@defproc[(webapp [index webpage?] [pages webpage?] ...)
+         (-> request? response?)]{
+ Returns a servlet that can be passed to @other-doc['(lib "web-server/scribblings/web-server.scrbl")]'s
+ @racket[serve/dispatch] (or similar, but the @racket[servlet-regexp]
+ must be @racket[#rx""] in any case). The servlet serves each page at
+ the url matching its @racket[path], and a fixed 404 page at all
+ other paths. The first page, the @racket[index], is also served at the empty path.}
+
+@defstruct[webpage ([path symbol?] [body (-> request? response?)])]{
+ A structure for webpages, consisting of a path the page can be found at and a function
+ mapping an http @racket[request] to a @racket[response]. The forms below generate slightly
+ limited @racket[webpage]s automatically.}
+
+@subsection{Defining Pages}
+
 @defform[(page name contents)
          #:contracts ([name symbol?]
                       [contents xexpr?])]{
@@ -93,7 +110,7 @@ and @racket[#:port]).
  shadowed by the later ones, the full query can be extracted by manually processing
  REQ if this is a problem.
 
- @racket[(page name contents)] is a shorthand for @racket[(page-proto name contents response/xexpr)].}
+ @racket[(page name contents)] is a shorthand for @racket[(page/proto name (hash "Content-Type" "text/html; charset=utf-8") (list (string->bytes/utf-8 (xexpr->string contents))))].}
 
 @defform[(textpage name contents)
          #:contracts ([name symbol?]
@@ -101,45 +118,40 @@ and @racket[#:port]).
  Returns a @racket[webpage] whose path is @racket[name] and whose body is the string provided in the @racket[contents] expression.
  As with @racket[page], the expression for @racket[contents] has access to @racket[GET], @racket[POST], @racket[COOKIE] and @racket[REQ].
 
- @racket[(textpage name contents)] is a shorthand for
- @racket[(proto-page name (string->bytes/utf-8 contents) (curry response/data #"text/plain; encoding=utf-8"))].}
+ @racket[(textpage name contents)] is a shorthand for a @racket[page/proto] expression.}
 
-@defform[(page-proto name contents response-operation)
+@defform[(datapage name mime-type contents)
          #:contracts ([name symbol?]
-                      [contents string?]
-                      [response-operation (-> any? response?)])]{
- This is a generic form to construct pages. It works like @racket[page] and @racket[textpage], but it takes an additional argument @racket[response-operation]
- that transforms the result of the @racket[contents] expression into a @racket[response] to pass back to the client. For instance, if you wanted a way to specify
- the return code of your pages, you could write something like:
- @racketblock[
-  (define-syntax (page/return-code stx)
-    (define dtm (syntax->datum stx))
-    (datum->syntax stx
-                   (page-proto ,(second dtm)
-                               ,(fourth dtm)
-                               (curry response/xexpr #:code ,(third dtm)))))]
- And invoke it:
- @racketblock[
- (page/return-code secret.html
-                   (if authorised? 200 403)
-                   (if authorised? page-contents '(html (body (h1 "Access Denied")))))]
- Note that it must be a syntax form and not a function, because page-proto must receive its arguments unevaluated.}
+                      [mime-type bytes?]
+                      [contents bytes?])]{
+ Returns a @racket[webpage] whose path is @racket[name] and whose body is the bytestring data provided by the @racket[contents] expression, served with the
+ specified @racket[mime-type]. Again, based on page/proto.}
 
-@defproc[(response/data [mime-type bytes?] [bs bytes?])
-         response]{
- Returns an http 200 response containing the given bytes @racket[bs] labelled with the given @racket[mime-type]. Intended for use with @racket[page-proto] to
- construct page types that serve data of kinds not yet supported.}
+@defform[(page/headers name headers contents)
+         #:contracts ([name symbol?]
+                      [headers hash?]
+                      [contents xexpr?])]{
+ Works like @racket[page], but with an additional @racket[headers] expression. The @racket[headers] expression has access to GET, POST, COOKIE and REQ like
+ @racket[contents] does, and it should return a hash of strings to strings describing any HTTP headers that should be set in the response. These headers
+ override any implicit headers (ie. the default Content-Type of 'text/html; charset=utf-8' and those mentioned in the documentation for @racket[response]).}
 
+@defform[(textpage/headers name headers contents)
+         #:contracts ([name symbol?]
+                      [headers hash?]
+                      [contents string?])]{
+ To @racket[textpage] as @racket[page/headers] is to @racket[page].}
 
-@defproc[(webapp [index webpage?] [pages webpage?] ...)
-         (-> request? response?)]{
- Returns a servlet that can be passed to @other-doc['(lib "web-server/scribblings/web-server.scrbl")]'s
- @racket[serve/dispatch] (or similar, but the @racket[servlet-regexp]
- must be @racket[#rx""] in any case). The servlet serves each page at
- the url matching its @racket[path], and a fixed 404 page at all
- other paths. The first page, the @racket[index], is also served at the empty path.}
+@defform[(datapage/headers name mime-type headers contents)
+         #:contracts ([name symbol?]
+                      [mime-type bytes?]
+                      [headers hash?]
+                      [contents bytes?])]{
+ To @racket[datapage] as @racket[page/headers] is to @racket[page]. Note that any Content-Type specified in the headers will override the @racket[mime-type argument].}
 
-@defstruct[webpage ([path symbol?] [body (-> request? response?)])]{
- A structure for webpages, consisting of a path the page can be found at and a function
- mapping an http @racket[request] to a @racket[response]. The @racket[page] form
- generates slightly limited @racket[webpage]s automatically.}
+@defform[(page/proto name headers contents)
+         #:contracts ([name symbol?]
+                      [headers hash?]
+                      [contents (listof? bytes?)])]{
+ This is a generic form to construct pages. It works like @racket[page/headers] and @racket[textpage/headers], but without making any assumptions about the nature
+ and purpose of the contents or what Content-Type is appropriate (a list of bytestrings is the form that web-server servlets expect page contents to be in).
+ Again, the @racket[headers] hash should take strings to strings.}
